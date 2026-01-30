@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Application de gestion pour banque alimentaire">
+  <meta name="theme-color" content="#2E5CFF">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Banque Alim">
+  
+  <title>Banque Alimentaire - Demo</title>
+  
+  <link rel="manifest" href="/manifest.json">
+  
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+    
+    #root {
+      min-height: 100vh;
+    }
+
+    /* Amélioration des inputs sur mobile */
+    input, select, textarea, button {
+      font-size: 16px; /* Évite le zoom automatique sur iOS */
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const normalizeString = (str) => {
+      return str
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    };
+
+    const areNamesEquivalent = (name1, name2) => {
+      return normalizeString(name1) === normalizeString(name2);
+    };
+
+    function BanqueAlimentaireApp() {
+      const [inventory, setInventory] = useState(() => {
+        const saved = localStorage.getItem('ba_inventory');
+        return saved ? JSON.parse(saved) : [];
+      });
+      
+      const [boxTemplates, setBoxTemplates] = useState(() => {
+        const saved = localStorage.getItem('ba_templates');
+        return saved ? JSON.parse(saved) : [];
+      });
+      
+      const [distributions, setDistributions] = useState(() => {
+        const saved = localStorage.getItem('ba_distributions');
+        return saved ? JSON.parse(saved) : [];
+      });
+      
+      const [activeTab, setActiveTab] = useState('inventory');
+      const [newItem, setNewItem] = useState({ item_name: '', quantity: 0, unit: 'unités' });
+      const [editingItem, setEditingItem] = useState(null);
+      
+      const [newTemplate, setNewTemplate] = useState({ template_name: '', description: '', items: [] });
+      const [newTemplateItem, setNewTemplateItem] = useState({ item_name: '', quantity: 0 });
+      
+      const [newDistribution, setNewDistribution] = useState({ 
+        template_id: '', 
+        distribution_date: '', 
+        box_count: 0,
+        notes: '' 
+      });
+      
+      const [selectedDistribution, setSelectedDistribution] = useState(null);
+      const [distributionNeeds, setDistributionNeeds] = useState([]);
+
+      useEffect(() => {
+        localStorage.setItem('ba_inventory', JSON.stringify(inventory));
+      }, [inventory]);
+
+      useEffect(() => {
+        localStorage.setItem('ba_templates', JSON.stringify(boxTemplates));
+      }, [boxTemplates]);
+
+      useEffect(() => {
+        localStorage.setItem('ba_distributions', JSON.stringify(distributions));
+      }, [distributions]);
+
+      const addToInventory = () => {
+        if (newItem.item_name && newItem.quantity > 0) {
+          const existingIndex = inventory.findIndex(item => 
+            areNamesEquivalent(item.item_name, newItem.item_name)
+          );
+
+          if (existingIndex !== -1) {
+            const updated = [...inventory];
+            updated[existingIndex].quantity += parseFloat(newItem.quantity);
+            setInventory(updated);
+            alert(`✅ Quantité mise à jour : ${updated[existingIndex].item_name} = ${updated[existingIndex].quantity} ${updated[existingIndex].unit}`);
+          } else {
+            setInventory([...inventory, { ...newItem, id: Date.now() }]);
+          }
+          
+          setNewItem({ item_name: '', quantity: 0, unit: 'unités' });
+        }
+      };
+
+      const updateInventoryItem = (id, quantity) => {
+        setInventory(inventory.map(item => 
+          item.id === id ? { ...item, quantity: parseFloat(quantity) } : item
+        ));
+        setEditingItem(null);
+      };
+
+      const deleteInventoryItem = (id) => {
+        if (confirm('Supprimer cet article ?')) {
+          setInventory(inventory.filter(item => item.id !== id));
+        }
+      };
+
+      const addToNewTemplate = () => {
+        if (newTemplateItem.item_name && newTemplateItem.quantity > 0) {
+          const existingIndex = newTemplate.items.findIndex(item =>
+            areNamesEquivalent(item.item_name, newTemplateItem.item_name)
+          );
+
+          if (existingIndex !== -1) {
+            const updatedItems = [...newTemplate.items];
+            updatedItems[existingIndex].quantity += parseFloat(newTemplateItem.quantity);
+            setNewTemplate({ ...newTemplate, items: updatedItems });
+            alert(`✅ Quantité mise à jour`);
+          } else {
+            setNewTemplate({
+              ...newTemplate,
+              items: [...newTemplate.items, { ...newTemplateItem }]
+            });
+          }
+          
+          setNewTemplateItem({ item_name: '', quantity: 0 });
+        }
+      };
+
+      const removeFromNewTemplate = (index) => {
+        setNewTemplate({
+          ...newTemplate,
+          items: newTemplate.items.filter((_, i) => i !== index)
+        });
+      };
+
+      const saveBoxTemplate = () => {
+        if (newTemplate.template_name && newTemplate.items.length > 0) {
+          setBoxTemplates([...boxTemplates, { ...newTemplate, id: Date.now() }]);
+          setNewTemplate({ template_name: '', description: '', items: [] });
+          alert('✅ Modèle créé !');
+        }
+      };
+
+      const deleteBoxTemplate = (id) => {
+        if (confirm('Supprimer ce modèle ?')) {
+          setBoxTemplates(boxTemplates.filter(t => t.id !== id));
+        }
+      };
+
+      const createDistribution = () => {
+        if (newDistribution.template_id && newDistribution.distribution_date && newDistribution.box_count > 0) {
+          const template = boxTemplates.find(t => t.id === parseInt(newDistribution.template_id));
+          setDistributions([...distributions, {
+            ...newDistribution,
+            id: Date.now(),
+            template_name: template.template_name,
+            status: 'planned'
+          }]);
+          setNewDistribution({ template_id: '', distribution_date: '', box_count: 0, notes: '' });
+          alert('✅ Distribution planifiée !');
+        }
+      };
+
+      const viewDistributionNeeds = (distributionId) => {
+        const dist = distributions.find(d => d.id === distributionId);
+        const template = boxTemplates.find(t => t.id === parseInt(dist.template_id));
+        
+        const needs = template.items.map(templateItem => {
+          const inventoryItem = inventory.find(invItem =>
+            areNamesEquivalent(invItem.item_name, templateItem.item_name)
+          );
+          
+          const total_needed = templateItem.quantity * dist.box_count;
+          const available = inventoryItem ? inventoryItem.quantity : 0;
+          const missing = Math.max(0, total_needed - available);
+          
+          return {
+            item_name: templateItem.item_name,
+            quantity_per_box: templateItem.quantity,
+            total_needed,
+            available,
+            missing,
+            sufficient: missing === 0
+          };
+        });
+        
+        setDistributionNeeds(needs);
+        setSelectedDistribution(distributionId);
+      };
+
+      const deleteDistribution = (id) => {
+        if (confirm('Supprimer cette distribution ?')) {
+          setDistributions(distributions.filter(d => d.id !== id));
+        }
+      };
+
+      const clearAllData = () => {
+        if (confirm('⚠️ Effacer TOUTES les données ?')) {
+          if (confirm('Vraiment sûr ?')) {
+            localStorage.clear();
+            setInventory([]);
+            setBoxTemplates([]);
+            setDistributions([]);
+            alert('✅ Données effacées');
+          }
+        }
+      };
+
+      return (
+        <div style={{
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
+          fontFamily: '"Inter", sans-serif',
+          paddingBottom: '20px'
+        }}>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+          
+          <div style={{ maxWidth: '100%', margin: '0 auto' }}>
+            <header style={{
+              padding: '15px 20px',
+              color: 'white',
+              background: 'rgba(0,0,0,0.1)',
+              marginBottom: '20px'
+            }}>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: '800', marginBottom: '5px' }}>
+                🍎 Banque Alimentaire
+              </h1>
+              <p style={{ fontSize: '0.8rem', opacity: 0.9, marginBottom: '10px' }}>
+                Version Démo - Stockage Local
+              </p>
+              <button
+                onClick={clearAllData}
+                style={{
+                  padding: '8px 16px',
+                  background: 'rgba(255,255,255,0.25)',
+                  color: 'white',
+                  border: '2px solid rgba(255,255,255,0.5)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '0.85rem'
+                }}
+              >
+                🗑️ Réinitialiser
+              </button>
+            </header>
+
+            {/* Onglets optimisés mobile */}
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              padding: '0 15px',
+              marginBottom: '20px',
+              overflowX: 'auto'
+            }}>
+              {[
+                { id: 'inventory', label: 'Inventaire', icon: '📦' },
+                { id: 'templates', label: 'Cartons', icon: '🛒' },
+                { id: 'distributions', label: 'Distributions', icon: '📅' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    flex: '1 1 auto',
+                    minWidth: '100px',
+                    padding: '12px 16px',
+                    border: 'none',
+                    borderRadius: '12px',
+                    background: activeTab === tab.id ? 'white' : 'rgba(255,255,255,0.2)',
+                    color: activeTab === tab.id ? '#2E5CFF' : 'white',
+                    fontWeight: '700',
+                    fontSize: '0.9rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    boxShadow: activeTab === tab.id ? '0 2px 8px rgba(0,0,0,0.15)' : 'none'
+                  }}
+                >
+                  <div>{tab.icon}</div>
+                  <div style={{ fontSize: '0.75rem', marginTop: '2px' }}>{tab.label}</div>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ 
+              background: 'white', 
+              borderRadius: '20px 20px 0 0', 
+              padding: '20px 15px',
+              minHeight: 'calc(100vh - 200px)'
+            }}>
+              
+              {/* ONGLET INVENTAIRE */}
+              {activeTab === 'inventory' && (
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
+                    📦 Stock actuel
+                  </h2>
+
+                  <div style={{
+                    background: 'linear-gradient(135deg, #2E5CFF15 0%, #4ADE8015 100%)',
+                    padding: '20px',
+                    borderRadius: '16px',
+                    marginBottom: '20px',
+                    border: '2px solid #2E5CFF30'
+                  }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '15px' }}>
+                      Ajouter une denrée
+                    </h3>
+                    
+                    {/* Layout vertical pour mobile */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <input
+                        type="text"
+                        placeholder="Nom de la denrée"
+                        value={newItem.item_name}
+                        onChange={(e) => setNewItem({ ...newItem, item_name: e.target.value })}
+                        style={{ 
+                          width: '100%', 
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px', 
+                          fontSize: '16px'
+                        }}
+                      />
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        <input
+                          type="number"
+                          placeholder="Quantité"
+                          value={newItem.quantity || ''}
+                          onChange={(e) => setNewItem({ ...newItem, quantity: parseFloat(e.target.value) || 0 })}
+                          style={{ 
+                            width: '100%', 
+                            padding: '14px', 
+                            border: '2px solid #cbd5e0', 
+                            borderRadius: '10px', 
+                            fontSize: '16px'
+                          }}
+                        />
+                        
+                        <input
+                          type="text"
+                          placeholder="Unité"
+                          value={newItem.unit}
+                          onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+                          style={{ 
+                            width: '100%', 
+                            padding: '14px', 
+                            border: '2px solid #cbd5e0', 
+                            borderRadius: '10px', 
+                            fontSize: '16px'
+                          }}
+                        />
+                      </div>
+                      
+                      <button
+                        onClick={addToInventory}
+                        style={{
+                          width: '100%',
+                          padding: '16px',
+                          background: 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '10px',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ➕ Ajouter
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    {inventory.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#a0aec0', padding: '40px 20px', fontSize: '0.95rem' }}>
+                        Aucune denrée en stock.
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {inventory.map((item) => (
+                          <div
+                            key={item.id}
+                            style={{
+                              padding: '15px',
+                              background: '#f8fafc',
+                              borderRadius: '12px',
+                              border: '2px solid #e2e8f0'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '1rem', marginBottom: '4px' }}>
+                                  {item.item_name}
+                                </div>
+                                <div style={{ fontSize: '0.85rem', color: '#718096' }}>
+                                  {item.unit}
+                                </div>
+                              </div>
+                              <div style={{ fontWeight: '700', color: '#2E5CFF', fontSize: '1.4rem' }}>
+                                {item.quantity}
+                              </div>
+                            </div>
+                            
+                            {editingItem === item.id ? (
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                <input
+                                  type="number"
+                                  defaultValue={item.quantity}
+                                  id={`edit-${item.id}`}
+                                  style={{ 
+                                    flex: 1, 
+                                    padding: '10px', 
+                                    border: '2px solid #2E5CFF', 
+                                    borderRadius: '8px',
+                                    fontSize: '16px'
+                                  }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    const input = document.getElementById(`edit-${item.id}`);
+                                    updateInventoryItem(item.id, input.value);
+                                  }}
+                                  style={{ 
+                                    padding: '10px 16px', 
+                                    background: '#4ADE80', 
+                                    color: 'white', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    fontSize: '18px'
+                                  }}
+                                >
+                                  ✅
+                                </button>
+                                <button
+                                  onClick={() => setEditingItem(null)}
+                                  style={{ 
+                                    padding: '10px 16px', 
+                                    background: '#f56565', 
+                                    color: 'white', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    fontSize: '18px'
+                                  }}
+                                >
+                                  ❌
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                <button
+                                  onClick={() => setEditingItem(item.id)}
+                                  style={{ 
+                                    flex: 1,
+                                    padding: '10px', 
+                                    background: '#edf2f7', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  ✏️ Modifier
+                                </button>
+                                <button
+                                  onClick={() => deleteInventoryItem(item.id)}
+                                  style={{ 
+                                    flex: 1,
+                                    padding: '10px', 
+                                    background: '#fed7d7', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  🗑️ Supprimer
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ONGLET CARTONS TYPES */}
+              {activeTab === 'templates' && (
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
+                    🛒 Modèles de cartons
+                  </h2>
+
+                  <div style={{
+                    background: 'linear-gradient(135deg, #2E5CFF15 0%, #4ADE8015 100%)',
+                    padding: '20px',
+                    borderRadius: '16px',
+                    marginBottom: '20px',
+                    border: '2px solid #2E5CFF30'
+                  }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '15px' }}>
+                      Créer un nouveau modèle
+                    </h3>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <input
+                        type="text"
+                        placeholder="Nom du modèle (ex: Carton Famille)"
+                        value={newTemplate.template_name}
+                        onChange={(e) => setNewTemplate({ ...newTemplate, template_name: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '14px',
+                          border: '2px solid #cbd5e0',
+                          borderRadius: '10px',
+                          fontSize: '16px'
+                        }}
+                      />
+                      
+                      <textarea
+                        placeholder="Description (optionnel)"
+                        value={newTemplate.description}
+                        onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '14px',
+                          border: '2px solid #cbd5e0',
+                          borderRadius: '10px',
+                          minHeight: '60px',
+                          resize: 'vertical',
+                          fontSize: '16px'
+                        }}
+                      />
+
+                      <div style={{ 
+                        background: 'white', 
+                        padding: '15px', 
+                        borderRadius: '10px',
+                        marginTop: '10px'
+                      }}>
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '10px' }}>
+                          Ajouter des denrées :
+                        </h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <input
+                            type="text"
+                            placeholder="Denrée"
+                            value={newTemplateItem.item_name}
+                            onChange={(e) => setNewTemplateItem({ ...newTemplateItem, item_name: e.target.value })}
+                            style={{ 
+                              width: '100%',
+                              padding: '12px', 
+                              border: '2px solid #cbd5e0', 
+                              borderRadius: '8px',
+                              fontSize: '16px'
+                            }}
+                          />
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
+                            <input
+                              type="number"
+                              placeholder="Quantité"
+                              value={newTemplateItem.quantity || ''}
+                              onChange={(e) => setNewTemplateItem({ ...newTemplateItem, quantity: parseFloat(e.target.value) || 0 })}
+                              style={{ 
+                                padding: '12px', 
+                                border: '2px solid #cbd5e0', 
+                                borderRadius: '8px',
+                                fontSize: '16px'
+                              }}
+                            />
+                            <button
+                              onClick={addToNewTemplate}
+                              style={{
+                                padding: '12px 20px',
+                                background: '#2E5CFF',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                fontSize: '18px'
+                              }}
+                            >
+                              ➕
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {newTemplate.items.length > 0 && (
+                        <div style={{ background: 'white', padding: '15px', borderRadius: '10px' }}>
+                          <h4 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '10px' }}>
+                            Contenu du carton :
+                          </h4>
+                          {newTemplate.items.map((item, index) => (
+                            <div
+                              key={index}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '10px',
+                                background: '#f7fafc',
+                                borderRadius: '8px',
+                                marginBottom: '8px'
+                              }}
+                            >
+                              <span style={{ fontSize: '0.95rem' }}>
+                                {item.item_name} - <strong>{item.quantity}</strong>
+                              </span>
+                              <button
+                                onClick={() => removeFromNewTemplate(index)}
+                                style={{ 
+                                  padding: '6px 12px', 
+                                  background: '#fed7d7', 
+                                  border: 'none', 
+                                  borderRadius: '6px', 
+                                  cursor: 'pointer',
+                                  fontSize: '16px'
+                                }}
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={saveBoxTemplate}
+                        disabled={!newTemplate.template_name || newTemplate.items.length === 0}
+                        style={{
+                          width: '100%',
+                          padding: '16px',
+                          background: newTemplate.template_name && newTemplate.items.length > 0
+                            ? 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)'
+                            : '#cbd5e0',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '10px',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          cursor: newTemplate.template_name && newTemplate.items.length > 0 ? 'pointer' : 'not-allowed',
+                          marginTop: '10px'
+                        }}
+                      >
+                        💾 Enregistrer le modèle
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    {boxTemplates.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#a0aec0', padding: '40px 20px', fontSize: '0.95rem' }}>
+                        Aucun modèle créé.
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {boxTemplates.map((template) => (
+                          <div
+                            key={template.id}
+                            style={{
+                              background: '#f8fafc',
+                              borderRadius: '12px',
+                              border: '2px solid #e2e8f0',
+                              padding: '15px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
+                              <div style={{ flex: 1 }}>
+                                <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '5px' }}>
+                                  {template.template_name}
+                                </h3>
+                                {template.description && (
+                                  <p style={{ fontSize: '0.85rem', color: '#718096' }}>
+                                    {template.description}
+                                  </p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => deleteBoxTemplate(template.id)}
+                                style={{ 
+                                  padding: '8px 12px', 
+                                  background: '#fed7d7', 
+                                  border: 'none', 
+                                  borderRadius: '8px', 
+                                  cursor: 'pointer',
+                                  height: 'fit-content',
+                                  fontSize: '16px'
+                                }}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                            <div style={{ background: 'white', borderRadius: '10px', padding: '12px' }}>
+                              {template.items.map((item, index) => (
+                                <div
+                                  key={index}
+                                  style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    padding: '8px 0',
+                                    borderBottom: index < template.items.length - 1 ? '1px solid #e2e8f0' : 'none',
+                                    fontSize: '0.95rem'
+                                  }}
+                                >
+                                  <span>{item.item_name}</span>
+                                  <span style={{ fontWeight: '700', color: '#2E5CFF' }}>{item.quantity}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ONGLET DISTRIBUTIONS */}
+              {activeTab === 'distributions' && (
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
+                    📅 Distributions
+                  </h2>
+
+                  <div style={{
+                    background: 'linear-gradient(135deg, #2E5CFF15 0%, #4ADE8015 100%)',
+                    padding: '20px',
+                    borderRadius: '16px',
+                    marginBottom: '20px',
+                    border: '2px solid #2E5CFF30'
+                  }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '15px' }}>
+                      Planifier une distribution
+                    </h3>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <select
+                        value={newDistribution.template_id}
+                        onChange={(e) => setNewDistribution({ ...newDistribution, template_id: e.target.value })}
+                        style={{ 
+                          width: '100%',
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px', 
+                          background: 'white',
+                          fontSize: '16px'
+                        }}
+                      >
+                        <option value="">Sélectionner un modèle de carton</option>
+                        {boxTemplates.map(template => (
+                          <option key={template.id} value={template.id}>{template.template_name}</option>
+                        ))}
+                      </select>
+                      
+                      <input
+                        type="date"
+                        value={newDistribution.distribution_date}
+                        onChange={(e) => setNewDistribution({ ...newDistribution, distribution_date: e.target.value })}
+                        style={{ 
+                          width: '100%',
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px',
+                          fontSize: '16px'
+                        }}
+                      />
+                      
+                      <input
+                        type="number"
+                        placeholder="Nombre de cartons"
+                        value={newDistribution.box_count || ''}
+                        onChange={(e) => setNewDistribution({ ...newDistribution, box_count: parseInt(e.target.value) || 0 })}
+                        style={{ 
+                          width: '100%',
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px',
+                          fontSize: '16px'
+                        }}
+                      />
+                      
+                      <input
+                        type="text"
+                        placeholder="Notes (optionnel)"
+                        value={newDistribution.notes}
+                        onChange={(e) => setNewDistribution({ ...newDistribution, notes: e.target.value })}
+                        style={{ 
+                          width: '100%',
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px',
+                          fontSize: '16px'
+                        }}
+                      />
+
+                      <button
+                        onClick={createDistribution}
+                        disabled={!newDistribution.template_id || !newDistribution.distribution_date || !newDistribution.box_count}
+                        style={{
+                          width: '100%',
+                          padding: '16px',
+                          background: newDistribution.template_id && newDistribution.distribution_date && newDistribution.box_count
+                            ? 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)'
+                            : '#cbd5e0',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '10px',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          cursor: newDistribution.template_id && newDistribution.distribution_date && newDistribution.box_count ? 'pointer' : 'not-allowed'
+                        }}
+                      >
+                        📅 Planifier la distribution
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    {distributions.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#a0aec0', padding: '40px 20px', fontSize: '0.95rem' }}>
+                        Aucune distribution planifiée.
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {distributions.map((dist) => (
+                          <div
+                            key={dist.id}
+                            style={{
+                              background: '#EBF8FF',
+                              border: '2px solid #2E5CFF',
+                              borderRadius: '12px',
+                              padding: '15px'
+                            }}
+                          >
+                            <div style={{ marginBottom: '15px' }}>
+                              <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '8px' }}>
+                                {dist.template_name}
+                              </h3>
+                              <div style={{ fontSize: '0.9rem', color: '#4a5568' }}>
+                                <div>📅 {new Date(dist.distribution_date).toLocaleDateString('fr-FR')}</div>
+                                <div>📦 {dist.box_count} cartons</div>
+                                {dist.notes && <div style={{ marginTop: '5px' }}>📝 {dist.notes}</div>}
+                              </div>
+                            </div>
+                            
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                onClick={() => viewDistributionNeeds(dist.id)}
+                                style={{
+                                  flex: 1,
+                                  padding: '12px',
+                                  background: 'white',
+                                  border: '2px solid #2E5CFF',
+                                  borderRadius: '8px',
+                                  fontWeight: '600',
+                                  cursor: 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ⚠️ Voir les besoins
+                              </button>
+                              <button
+                                onClick={() => deleteDistribution(dist.id)}
+                                style={{ 
+                                  padding: '12px 16px', 
+                                  background: 'white', 
+                                  border: '2px solid #fed7d7', 
+                                  borderRadius: '8px', 
+                                  cursor: 'pointer',
+                                  fontSize: '16px'
+                                }}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+
+                            {selectedDistribution === dist.id && distributionNeeds.length > 0 && (
+                              <div style={{ background: 'white', borderRadius: '10px', padding: '15px', marginTop: '15px' }}>
+                                <h4 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '12px' }}>
+                                  📊 Analyse des besoins
+                                </h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                  {distributionNeeds.map((need, index) => (
+                                    <div
+                                      key={index}
+                                      style={{
+                                        padding: '12px',
+                                        background: need.sufficient ? '#F0FDF4' : '#FEF2F2',
+                                        border: `2px solid ${need.sufficient ? '#4ADE80' : '#EF4444'}`,
+                                        borderRadius: '8px'
+                                      }}
+                                    >
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '5px' }}>
+                                        <span style={{ fontWeight: '600', fontSize: '0.95rem' }}>
+                                          {need.sufficient ? '✅' : '⚠️'} {need.item_name}
+                                        </span>
+                                        {!need.sufficient && (
+                                          <span style={{ fontWeight: '700', color: '#DC2626', fontSize: '1.1rem' }}>
+                                            -{need.missing}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div style={{ fontSize: '0.8rem', color: '#4a5568' }}>
+                                        Besoin: {need.total_needed} | Disponible: {need.available}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<BanqueAlimentaireApp />);
+  </script>
+</body>
+</html>
